@@ -5,8 +5,8 @@
 <h1 align="center">dsh-memory-panel</h1>
 
 <p align="center">
-  给 DeepSeek Harness 一份跨会话的长期记忆<br>
-  <sub>我的性格 · 你对我的要求 · 你的背景 —— 每次新开对话自动带上</sub>
+  Long-term memory for DeepSeek Harness<br>
+  <sub>my character · how you want me to work · your background — carried into every new session</sub>
 </p>
 
 <p align="center">
@@ -16,101 +16,107 @@
   <img alt="DeepSeek Harness" src="https://img.shields.io/badge/DeepSeek%20Harness-plugin-4d6bfe.svg">
 </p>
 
+<p align="center">
+  <b>English</b> · <a href="README.zh-CN.md">中文</a>
+</p>
+
 ---
 
-## 解决什么问题
+## Why
 
-| 现在 | 装上之后 |
+| Today | With this plugin |
 | --- | --- |
-| 新开一个对话，之前说过的全忘了 | 不用重复交代，我一上来就知道 |
-| 每次都要重申「先问清楚再动手」 | 工作方式存进记忆，一直生效 |
-| 记忆越攒越多，全塞进去又吵又费钱 | 只递和当前这句话相关的那几条 |
+| A new session forgets everything you said | No re-briefing — I know it from the first message |
+| You restate "ask before you start" every time | Working rules are stored and always apply |
+| Memory piles up and gets noisy, and costs tokens | Only the entries related to this message are injected |
 
-## 三类记忆
+## Three kinds of entries
 
-| 类型 | 存什么 | 什么时候进提示词 |
+| Kind | What it holds | When it enters the prompt |
 | --- | --- | --- |
-| `self` | 我的性格、说话方式 | 每次**全部**注入 |
-| `preference` | 你要我遵守的工作方式 | 每次**全部**注入 |
-| `fact` | 关于你的背景 | 超过 12 条时，按当前消息挑相关的 |
+| `self` | My character and way of speaking | **Always**, in full |
+| `preference` | How you want me to work | **Always**, in full |
+| `fact` | Background about you | Filtered by relevance once there are more than 12 |
 
-性格和规矩永远全量注入——不能因为关键词没匹配上就把性格丢了。只有事实会筛选。
+Character and rules are always injected in full: a keyword miss must never drop my personality. Only facts are filtered.
 
-## 安装
+## Install
 
-**推荐**：DSH → 插件 → 添加插件 → 选择本目录 → 重启 DSH。
+**Recommended:** DSH → Plugins → Add plugin → pick this directory → restart DSH.
 
 <details>
-<summary>手动安装（pnpm）</summary>
+<summary>Manual install (pnpm)</summary>
 
 ```bash
-cd ~/.dsh/profiles/<你的 profile>
+cd ~/.dsh/profiles/<your profile>
 pnpm add github:Andy-awa/dsh-memory-panel
 ```
 
-把 `"@andy-awa/dsh-memory-panel"` 加进同目录 `package.json` 的 `dsh.profile.bundles` 数组，重启 DSH。
+Add `"@andy-awa/dsh-memory-panel"` to the `dsh.profile.bundles` array in that directory's `package.json`, then restart DSH.
 
-> Host 插件没有热重载：改完代码必须重启才生效。
+> Host plugins have no hot reload: restart DSH after every code change.
 
 </details>
 
-## 用法
+## Usage
 
-| 你说 | 效果 |
+| You say | What happens |
 | --- | --- |
-| 记住：我更喜欢简洁的回答 | 存一条事实 |
-| 你记得什么？ | 列出全部记忆 |
-| 忘掉第 3 条 | 删除那一条 |
-| 你以后说话再简短一点 | 存一条工作方式 |
+| Remember: I prefer concise answers | Saves one fact |
+| What do you remember? | Lists every entry |
+| Forget number 3 | Deletes that entry |
+| From now on, be shorter | Saves one working preference |
 
-左侧栏的「记忆」图标能看到全部条目，每条标着「我自己 / 偏好 / 事实」。面板只读，增删改通过对话完成。
+The Memory icon in the left sidebar lists every entry, tagged *me / preference / fact*. The panel is read-only; add and remove through the chat.
 
-你说出值得长期保留的内容时，我会自己记下来，不用你说「记住」。
+When you share something worth keeping long term, I save it myself — you do not have to say "remember".
 
-## 大致原理
-
-```
-你的消息 ──▶ 给每条 fact 关键词打分 ──▶ 挑出相关的几条
-                                          │
-我的性格 + 你的规矩（全量）──────────────┴──▶ 注入本次请求 ──▶ 我回答
-```
-
-不是语义模型，是关键词匹配（中文按双字切片）。够快、零依赖、不花钱；代价是字面不重合的记忆捞不出来。
-
-## 数据在哪
+## How it works
 
 ```
-~/.dsh/memory/about-user.json   # 记忆本体，纯文本 JSON，可直接改
-~/.dsh/memory/status.json       # 启动自检，排查"为什么没生效"
+your message ──▶ score every fact by keyword ──▶ keep the relevant ones
+                                                     │
+my character + your rules (always, in full) ─────────┴──▶ inject into this request ──▶ answer
 ```
 
-记忆**故意**放在 profile 之外：多个 profile 共用同一份。删掉 `about-user.json` 就等于清空记忆。
+Keyword matching, not a semantic model — CJK text is split into character bigrams. It is fast, dependency-free and free to run; the trade-off is that a memory with no literal overlap is missed.
 
-## 限制
+## Where the data lives
+
+```
+~/.dsh/memory/about-user.json   # the entries, plain JSON, editable by hand
+~/.dsh/memory/status.json       # activation self-check, for "why is it not working"
+```
+
+Memory deliberately lives outside the profile directory, so every profile shares one set. Delete `about-user.json` to clear it.
+
+## Limitations
 
 > [!WARNING]
-> 这是 0.7.0 实验版本，接口可能还会变。
+> Experimental 0.7.0 — interfaces may still change.
 
-- **关键词匹配，不是语义理解**。字面不重合的相关记忆捞不出来，这时可以用 `memory_list` 按关键词查。
-- 只有 `fact` 会被筛选，`self` 和 `preference` 永远全量注入。
-- 改完插件**必须重启 DSH**（Host 插件没有热重载）。
-- 面板只读。
-- 与 [@a9i5k4/dsh-auto-memory](https://github.com/Aik358/dsh-auto-memory) 冲突：两者都占 `sidebar.panellist` 的 `memory` 位置，别同时启用。
-- 注入内容随对话变化，前缀缓存命中率会下降一点。
-- 首次启动写入 5 条默认记忆（4 条性格 + 1 条「先问清楚再动手」），不想要就删。
+- **Keyword matching, not semantics.** A related memory with no overlapping words will not surface; use `memory_list` with a keyword then.
+- Only `fact` is filtered. `self` and `preference` are always injected in full.
+- **Restart DSH after every change** — Host plugins have no hot reload.
+- The sidebar panel is read-only.
+- Conflicts with [@a9i5k4/dsh-auto-memory](https://github.com/Aik358/dsh-auto-memory): both claim the `memory` slot in `sidebar.panellist`. Do not enable both.
+- Injected text changes with the conversation, so the prefix cache hit rate drops slightly.
+- First run writes 5 default entries (4 character traits + 1 "confirm before starting"); delete them if you do not want them.
 
-## 结构
+## Layout
 
 ```
-index.js           Host：存储、注入、联想、三个工具、面板数据接口
-client.js          Client：侧栏图标 + 只读面板
-cordis.patch.yml   注册行
-locale/            插件管理器标题与描述（中/英）
-icon.svg           图标
+index.js           Host: storage, prompt injection, recall, three tools, panel route
+client.js          Client: sidebar icon + read-only panel
+cordis.patch.yml   registration row
+locale/            plugin-manager title and description (en / zh)
+icon.svg           icon
 ```
 
-零运行时依赖，无构建步骤，两个 JS 文件直接跑。
+Zero runtime dependencies, no build step — two plain JS files.
 
-## 许可
+## License
 
 [MIT](LICENSE) © Andy-awa
+
+Issues and pull requests are welcome.
