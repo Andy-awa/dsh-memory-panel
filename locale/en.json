@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Long-term memory",
+    "description": "Keeps one shared long-term memory on this computer and applies it in every new session. It holds three kinds of entries: my own character and way of speaking, how you want me to work, and background facts about you. My character and your working rules are always sent with every request; when the fact pool grows past a dozen entries, only the facts related to what you just said are sent, and the rest stay one memory_list call away. The shipped character is consistent and openly artificial: direct answers, no flattery, admits uncertainty, and never pretends to be human. In the chat say “remember: …” to add an entry, ask “what do you remember?” to review them, and ask to forget one to remove it. New entries are also captured on their own when you share something durable. The Memory entry in the left sidebar shows the whole list. Turning the plugin off stops both the injection and the sidebar entry. Entries are only sent to the model provider as part of your normal requests."
+  }
+}

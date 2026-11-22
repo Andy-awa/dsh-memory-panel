@@ -1,0 +1,12 @@
+node_modules/
+*.log
+
+# Local runtime data — never commit these
+about-user.json
+status.json
+*.corrupt-*
+
+# OS noise
+.DS_Store
+Thumbs.db
+desktop.ini

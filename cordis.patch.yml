@@ -1,0 +1,3 @@
+- insert:
+    - id: memory-panel
+      name: '@andy-awa/dsh-memory-panel'

@@ -1,0 +1,42 @@
+{
+  "name": "@andy-awa/dsh-memory-panel",
+  "version": "0.7.0",
+  "description": "Long-term memory for DeepSeek Harness: my character, your working preferences and your background facts, injected into every new session with keyword-based associative recall.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Andy-awa",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Andy-awa/dsh-memory-panel.git"
+  },
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "dsh-plugin",
+    "memory",
+    "long-term-memory"
+  ],
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg",
+    "README.md",
+    "LICENSE"
+  ],
+  "dsh": {
+    "bundle": { "patch": "./cordis.patch.yml" },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": ["@deepseek-ai/dsh-client-ui-conversation"]
+    }
+  }
+}
