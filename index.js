@@ -20,6 +20,41 @@ const PROMPT_CHAR_LIMIT = 4000
 const INLINE_FACT_LIMIT = 12
 const RECALL_LIMIT = 8
 
+/** Corpus: verbatim things the user said, kept apart from the distilled rules. */
+const MAX_SAMPLE_LENGTH = 1200
+const INLINE_SAMPLE_LIMIT = 6
+const INLINE_SAMPLE_CHARS = 160
+const SAMPLE_RECALL_DEFAULT = 20
+
+const SCENES = ['group', 'ai', 'steam', 'moments', 'bili', 'github', 'other']
+const AUDIENCES = ['close', 'classmate', 'stranger', 'self', 'other']
+
+const SCENE_LABELS = {
+  group: '群聊',
+  ai: '跟 AI 说话',
+  steam: 'Steam 评论区',
+  moments: '朋友圈',
+  bili: 'B站私信',
+  github: 'GitHub',
+  other: '其他',
+}
+
+const AUDIENCE_LABELS = {
+  close: '很熟的人',
+  classmate: '同学',
+  stranger: '陌生人',
+  self: '自己',
+  other: '不确定',
+}
+
+function sceneLabel(value) {
+  return SCENE_LABELS[value] || SCENE_LABELS.other
+}
+
+function audienceLabel(value) {
+  return AUDIENCE_LABELS[value] || AUDIENCE_LABELS.other
+}
+
 /** First-run entries so the panel and the prompt are useful immediately. */
 const SEEDS = [
   {
@@ -108,6 +143,20 @@ function normalizeRecord(value) {
   }
 }
 
+function normalizeSample(value) {
+  if (!isRecord(value)) return null
+  const text = normalizeText(value.text)
+  if (text === null) return null
+  return {
+    id: typeof value.id === 'string' && value.id !== '' ? value.id : '',
+    text: text.length > MAX_SAMPLE_LENGTH ? text.slice(0, MAX_SAMPLE_LENGTH) : text,
+    scene: SCENES.includes(value.scene) ? value.scene : 'other',
+    who: AUDIENCES.includes(value.who) ? value.who : 'other',
+    source: typeof value.source === 'string' ? value.source.slice(0, 120) : '',
+    createdAt: typeof value.createdAt === 'string' && value.createdAt !== '' ? value.createdAt : new Date().toISOString(),
+  }
+}
+
 /** Durable list of the user's preferences and facts. */
 function createStore(dir) {
   const file = join(dir, 'about-user.json')
@@ -183,7 +232,7 @@ function createStore(dir) {
     return memories.filter(record => record.text.toLowerCase().includes(needle))
   }
 
-  function promptText(currentText) {
+  function promptText(currentText, samples) {
     const selves = memories.filter(record => record.kind === 'self')
     const preferences = memories.filter(record => record.kind === 'preference')
     const allFacts = memories.filter(record => record.kind === 'fact')
@@ -242,7 +291,30 @@ function createStore(dir) {
         : '（另有 ' + hidden + ' 条记忆与当前话题关系较远，已先略过；用户提到相关内容时，用 memory_list 按关键词查。）')
       lines.push('')
     }
+    if (samples !== undefined && samples !== null && samples.count() > 0) {
+      const picked = samples.recall({ query: currentText, limit: INLINE_SAMPLE_LIMIT })
+      const corpus = []
+      let budget = PROMPT_CHAR_LIMIT
+      for (const sample of picked) {
+        const body = sample.text.replace(/\n+/g, ' / ')
+        const clipped = body.length > INLINE_SAMPLE_CHARS ? body.slice(0, INLINE_SAMPLE_CHARS) + '…' : body
+        const line = '- [' + sceneLabel(sample.scene) + '·' + audienceLabel(sample.who) + ']「' + clipped + '」'
+          + (sample.source !== '' ? '（' + sample.source + '）' : '')
+        if (budget - line.length < 0) continue
+        budget -= line.length
+        corpus.push(line)
+      }
+      if (corpus.length > 0) {
+        lines.push('## 他的原话（语料库样本）')
+        lines.push('')
+        lines.push('这些是用户本人说过的原话，用来学口气，不是规则。要替他写东西时，先用 memory_recall 按对象和场合作再找几条，挑最像的照着写，并把你参考了哪几条列给他看。')
+        lines.push('')
+        lines.push(...corpus)
+        lines.push('')
+      }
+    }
     lines.push('当用户说出值得长期保留的新内容（目标、习惯、偏好、限制、重要计划）时，主动用 memory_save 记下来，不必等用户说「记住」；一次性的临时信息不要记。用户要求忘掉某条时用 memory_forget。')
+    lines.push('当他发来自己说的话（聊天记录、截图、发的帖），用 memory_learn 收进语料库并标注对象与场合；只有提炼出的规则才写进 memory_save，原话永远保留原样。')
     return head.concat(lines).join('\n')
   }
 
@@ -257,6 +329,103 @@ function createStore(dir) {
     search,
     promptText,
     snapshot: () => ({ memories: memories.slice() }),
+  }
+}
+
+/** Durable corpus of the user's own sentences, tagged by scene and audience. */
+function createSampleStore(dir) {
+  const file = join(dir, 'samples.json')
+  let samples = []
+
+  function persist() {
+    mkdirSync(dir, { recursive: true })
+    const temporary = file + '.tmp-' + process.pid
+    writeFileSync(temporary, JSON.stringify({ version: 1, samples }, null, 2), 'utf8')
+    renameSync(temporary, file)
+  }
+
+  function load() {
+    let raw
+    try {
+      raw = readFileSync(file, 'utf8')
+    } catch {
+      return
+    }
+    try {
+      const parsed = JSON.parse(raw)
+      const list = Array.isArray(parsed) ? parsed : isRecord(parsed) && Array.isArray(parsed.samples) ? parsed.samples : []
+      samples = list
+        .map(normalizeSample)
+        .filter(record => record !== null)
+        .map(record => record.id === '' ? { ...record, id: randomUUID().slice(0, 8) } : record)
+    } catch {
+      try {
+        renameSync(file, file + '.corrupt-' + Date.now())
+      } catch {
+        // The corpus still restarts empty.
+      }
+      samples = []
+    }
+  }
+
+  function learn(input) {
+    const value = isRecord(input) ? input : {}
+    const normalized = normalizeSample(value)
+    if (normalized === null) throw new Error('sample text is required')
+    // Re-learning the same screenshot must not duplicate lines.
+    const existing = samples.find(record => record.text === normalized.text && record.scene === normalized.scene)
+    if (existing !== undefined) return { record: existing, duplicate: true }
+    const created = { ...normalized, id: randomUUID().slice(0, 8) }
+    samples = samples.concat([created])
+    persist()
+    return { record: created, duplicate: false }
+  }
+
+  function recall(input) {
+    const value = isRecord(input) ? input : {}
+    const limit = Number.isInteger(value.limit) && value.limit > 0 ? Math.min(value.limit, 100) : SAMPLE_RECALL_DEFAULT
+    let pool = samples.slice()
+    if (SCENES.includes(value.scene)) pool = pool.filter(record => record.scene === value.scene)
+    if (AUDIENCES.includes(value.who)) pool = pool.filter(record => record.who === value.who)
+    if (pool.length === 0) return []
+
+    const newest = list => list
+      .slice()
+      .sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt)))
+
+    const tokens = tokenize(typeof value.query === 'string' ? value.query : '')
+    if (tokens.size > 0) {
+      const ranked = pool
+        .map(record => ({ record, score: overlap(tokenize(record.text + ' ' + record.source), tokens) }))
+        .filter(entry => entry.score > 0)
+        .sort((left, right) => right.score - left.score)
+        .map(entry => entry.record)
+      if (ranked.length >= limit) return ranked.slice(0, limit)
+      // Top up with the freshest lines so a writer always has candidates to read.
+      const tail = newest(pool.filter(record => !ranked.includes(record)))
+      return ranked.concat(tail).slice(0, limit)
+    }
+    // No keyword at all: keep the freshest voice at hand rather than nothing.
+    return newest(pool).slice(0, limit)
+  }
+
+  function forget(id) {
+    const next = samples.filter(record => record.id !== id)
+    if (next.length === samples.length) return false
+    samples = next
+    persist()
+    return true
+  }
+
+  load()
+
+  return {
+    file,
+    list: () => samples.slice(),
+    count: () => samples.length,
+    learn,
+    recall,
+    forget,
   }
 }
 
@@ -278,6 +447,15 @@ function formatList(value) {
     .join('\n')
 }
 
+function formatSamples(value) {
+  const list = Array.isArray(value.samples) ? value.samples : []
+  if (list.length === 0) return '语料库里没有匹配的原话。放宽筛选条件，或者先用 memory_learn 存几条。'
+  return list
+    .map(record => '- [' + record.id + '][' + sceneLabel(record.scene) + '·' + audienceLabel(record.who) + '] '
+      + record.text + (record.source !== '' ? '（' + record.source + '）' : ''))
+    .join('\n')
+}
+
 function memoryItemSchema() {
   return {
     type: 'object',
@@ -291,7 +469,7 @@ function memoryItemSchema() {
   }
 }
 
-function createTools(store) {
+function createTools(store, samples) {
   return [
     {
       name: 'memory_save',
@@ -371,7 +549,107 @@ function createTools(store) {
         const input = isRecord(args) ? args : {}
         const id = typeof input.id === 'string' ? input.id : ''
         if (id === '') throw new Error('id is required')
-        return { removed: store.forget(id), total: store.list().length }
+        const removedMemory = store.forget(id)
+        // A sample id lands in the corpus, so try there when no rule matched.
+        const removedSample = removedMemory ? false : samples.forget(id)
+        return { removed: removedMemory || removedSample, total: store.list().length }
+      },
+    },
+    {
+      name: 'memory_learn',
+      description: 'Add one verbatim line the user actually said to the voice corpus, so future writing can imitate him. Tag the scene and the audience. Never paraphrase: keep his exact wording.',
+      parameters: {
+        type: 'object',
+        properties: {
+          text: { type: 'string', description: 'Exactly what the user said: one line or a short exchange, original wording kept.' },
+          scene: { type: 'string', enum: SCENES, description: 'Where he said it.' },
+          who: { type: 'string', enum: AUDIENCES, description: 'Who he was talking to.' },
+          source: { type: 'string', description: 'Optional provenance, e.g. "微信 CCG 群 2026-11-22".' },
+        },
+        required: ['text'],
+        additionalProperties: false,
+      },
+      output: {
+        schema: {
+          type: 'object',
+          properties: {
+            saved: { type: 'boolean' },
+            duplicate: { type: 'boolean' },
+            id: { type: 'string' },
+            scene: { type: 'string' },
+            who: { type: 'string' },
+            total: { type: 'integer' },
+          },
+          required: ['saved', 'duplicate', 'id', 'scene', 'who', 'total'],
+          additionalProperties: false,
+        },
+        render: (_args, value) => textBlock(JSON.stringify(value)),
+      },
+      async execute(args) {
+        const input = isRecord(args) ? args : {}
+        const result = samples.learn(input)
+        return {
+          saved: true,
+          duplicate: result.duplicate,
+          id: result.record.id,
+          scene: result.record.scene,
+          who: result.record.who,
+          total: samples.count(),
+        }
+      },
+    },
+    {
+      name: 'memory_recall',
+      description: 'Find the user\'s own past sentences that fit what you are about to write. Filter by scene and audience, read the candidates yourself, then write in the closest voice and quote the samples you leaned on.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'What you are about to write, e.g. "reply to a close friend who is being annoying".' },
+          scene: { type: 'string', enum: SCENES, description: 'Optional scene filter.' },
+          who: { type: 'string', enum: AUDIENCES, description: 'Optional audience filter.' },
+          limit: { type: 'integer', description: 'How many candidates to return, default 20.' },
+        },
+        additionalProperties: false,
+      },
+      output: {
+        schema: {
+          type: 'object',
+          properties: {
+            samples: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  id: { type: 'string' },
+                  text: { type: 'string' },
+                  scene: { type: 'string' },
+                  who: { type: 'string' },
+                  source: { type: 'string' },
+                },
+                required: ['id', 'text', 'scene', 'who', 'source'],
+                additionalProperties: false,
+              },
+            },
+            total: { type: 'integer' },
+          },
+          required: ['samples', 'total'],
+          additionalProperties: false,
+        },
+        render: (_args, value) => textBlock(formatSamples(value)),
+      },
+      async execute(args) {
+        const input = isRecord(args) ? args : {}
+        const found = samples.recall(input)
+        return {
+          samples: found.map(record => ({
+            id: record.id,
+            text: record.text,
+            scene: record.scene,
+            who: record.who,
+            source: record.source,
+          })),
+          total: samples.count(),
+        }
       },
     },
   ]
@@ -393,6 +671,7 @@ function writeStatus(dir, status) {
 export function apply(ctx) {
   const dir = resolveDir()
   const store = createStore(dir)
+  const samples = createSampleStore(dir)
   const status = {
     at: new Date().toISOString(),
     inject,
@@ -431,7 +710,7 @@ export function apply(ctx) {
       name: 'memory/about-user',
       order: 500,
       interpolate: false,
-      text: () => store.promptText(latestText),
+      text: () => store.promptText(latestText, samples),
     }))
     status.registered.prompt = true
   } catch (error) {
@@ -439,7 +718,7 @@ export function apply(ctx) {
   }
 
   try {
-    for (const definition of createTools(store)) {
+    for (const definition of createTools(store, samples)) {
       ctx.effect(() => ctx.tools.register(definition))
       status.registered.tools += 1
     }
@@ -451,7 +730,10 @@ export function apply(ctx) {
     ctx.effect(() => ctx.webServer.register({
       kind: 'exact',
       path: STATE_PATH,
-      resource: async () => new Response(JSON.stringify(store.snapshot()), {
+      resource: async () => new Response(JSON.stringify({
+        memories: store.list(),
+        samples: samples.list(),
+      }), {
         status: 200,
         headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' },
       }),

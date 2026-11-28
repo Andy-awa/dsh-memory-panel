@@ -1,7 +1,7 @@
 {
   "name": "@andy-awa/dsh-memory-panel",
-  "version": "0.7.0",
-  "description": "Long-term memory for DeepSeek Harness: my character, your working preferences and your background facts, injected into every new session with keyword-based associative recall.",
+  "version": "0.8.0",
+  "description": "Long-term memory for DeepSeek Harness: my character, your working preferences, your background facts, and a tagged corpus of your own sentences that I can recall and imitate.",
   "type": "module",
   "license": "MIT",
   "author": "Andy-awa",

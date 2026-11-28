@@ -32,6 +32,25 @@ window.__ModuleLoader__.load({
         kindPreference: 'Preference',
         kindFact: 'Fact',
         crash: 'The memory panel stopped rendering.',
+        tabMemories: 'Memory',
+        tabSamples: 'Voice',
+        samplesSubtitle: 'Your own sentences, tagged by scene and audience, so I can write in your voice instead of guessing.',
+        samplesEmpty: 'The voice corpus is empty.',
+        samplesEmptyHint: 'Send me a chat screenshot and I will take it in.',
+        samplesCount: '{n} lines',
+        samplesCountOne: '1 line',
+        sceneGroup: 'Group chat',
+        sceneAi: 'With me',
+        sceneSteam: 'Steam',
+        sceneMoments: 'Moments',
+        sceneBili: 'Bilibili',
+        sceneGithub: 'GitHub',
+        sceneOther: 'Other',
+        whoClose: 'Close friend',
+        whoClassmate: 'Classmate',
+        whoStranger: 'Stranger',
+        whoSelf: 'Self',
+        whoOther: 'Unsure',
       },
       zh: {
         sidebar: '记忆',
@@ -49,6 +68,25 @@ window.__ModuleLoader__.load({
         kindPreference: '偏好',
         kindFact: '事实',
         crash: '记忆面板渲染失败。',
+        tabMemories: '记忆',
+        tabSamples: '原话',
+        samplesSubtitle: '你本人说过的原话，按场合和对象标好，我照着写比猜准。',
+        samplesEmpty: '语料库还是空的。',
+        samplesEmptyHint: '把聊天截图发我，我就收进来。',
+        samplesCount: '共 {n} 条原话',
+        samplesCountOne: '共 1 条原话',
+        sceneGroup: '群聊',
+        sceneAi: '跟 AI 说话',
+        sceneSteam: 'Steam',
+        sceneMoments: '朋友圈',
+        sceneBili: 'B站私信',
+        sceneGithub: 'GitHub',
+        sceneOther: '其他',
+        whoClose: '很熟的人',
+        whoClassmate: '同学',
+        whoStranger: '陌生人',
+        whoSelf: '自己',
+        whoOther: '不确定',
       },
     }
 
@@ -66,6 +104,10 @@ window.__ModuleLoader__.load({
       '.dsh-memory-message-title{color:var(--dsw-alias-label-primary);font-size:14px;margin:0 0 6px}',
       '.dsh-memory-button{display:inline-flex;align-items:center;padding:6px 12px;margin-top:10px;border-radius:8px;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;cursor:pointer}',
       '.dsh-memory-button:hover:enabled{border-color:var(--dsw-alias-border-l2)}',
+      '.dsh-memory-tabs{display:flex;gap:6px;margin-top:14px}',
+      '.dsh-memory-tab{appearance:none;border:1px solid var(--dsw-alias-border-l1);background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;padding:4px 12px;border-radius:999px;cursor:pointer}',
+      '.dsh-memory-tab[data-active="1"]{background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-border-l2)}',
+      '.dsh-memory-item-meta{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap}',
     ].join('\n')
 
     function currentLanguage(context) {
@@ -116,6 +158,41 @@ window.__ModuleLoader__.load({
         })
       }
       return normalized
+    }
+
+    function normalizeSamples(value) {
+      if (!Array.isArray(value)) return []
+      const normalized = []
+      for (const item of value) {
+        if (item === null || typeof item !== 'object' || Array.isArray(item)) continue
+        const text = typeof item.text === 'string' ? item.text : ''
+        if (text.trim() === '') continue
+        normalized.push({
+          id: typeof item.id === 'string' && item.id !== '' ? item.id : text,
+          text,
+          scene: typeof item.scene === 'string' ? item.scene : 'other',
+          who: typeof item.who === 'string' ? item.who : 'other',
+        })
+      }
+      return normalized
+    }
+
+    function sceneKey(scene) {
+      if (scene === 'group') return 'sceneGroup'
+      if (scene === 'ai') return 'sceneAi'
+      if (scene === 'steam') return 'sceneSteam'
+      if (scene === 'moments') return 'sceneMoments'
+      if (scene === 'bili') return 'sceneBili'
+      if (scene === 'github') return 'sceneGithub'
+      return 'sceneOther'
+    }
+
+    function whoKey(who) {
+      if (who === 'close') return 'whoClose'
+      if (who === 'classmate') return 'whoClassmate'
+      if (who === 'stranger') return 'whoStranger'
+      if (who === 'self') return 'whoSelf'
+      return 'whoOther'
     }
 
     /** Content of the left-sidebar entry; the shell owns the button around it. */
@@ -239,6 +316,8 @@ window.__ModuleLoader__.load({
           const { t } = useLocale()
           const [status, setStatus] = React.useState('loading')
           const [memories, setMemories] = React.useState([])
+          const [samples, setSamples] = React.useState([])
+          const [tab, setTab] = React.useState('memories')
 
           const load = React.useCallback(() => {
             let cancelled = false
@@ -250,7 +329,9 @@ window.__ModuleLoader__.load({
               })
               .then(payload => {
                 if (cancelled) return
-                setMemories(normalizeMemories(payload === null ? [] : payload.memories))
+                const data = payload === null || typeof payload !== 'object' ? {} : payload
+                setMemories(normalizeMemories(data.memories))
+                setSamples(normalizeSamples(data.samples))
                 setStatus('ready')
               })
               .catch(() => {
@@ -264,6 +345,33 @@ window.__ModuleLoader__.load({
 
           React.useEffect(() => load(), [load])
 
+          const showingSamples = tab === 'samples'
+
+          function renderMemories() {
+            if (memories.length === 0) {
+              return h('div', { className: 'dsh-memory-message' },
+                h('p', { className: 'dsh-memory-message-title' }, t('empty')),
+                h('span', null, t('emptyHint')))
+            }
+            return memories.map(item => h('div', { key: item.id, className: 'dsh-memory-item' },
+              h('p', { className: 'dsh-memory-item-text' }, item.text),
+              h('span', { className: 'dsh-memory-tag' }, t(kindKey(item.kind)))))
+          }
+
+          function renderSamples() {
+            if (samples.length === 0) {
+              return h('div', { className: 'dsh-memory-message' },
+                h('p', { className: 'dsh-memory-message-title' }, t('samplesEmpty')),
+                h('span', null, t('samplesEmptyHint')))
+            }
+            return samples.map(item => h('div', { key: item.id, className: 'dsh-memory-item' },
+              h('div', { style: { flex: '1 1 auto', minWidth: 0 } },
+                h('p', { className: 'dsh-memory-item-text' }, item.text),
+                h('div', { className: 'dsh-memory-item-meta' },
+                  h('span', { className: 'dsh-memory-tag' }, t(sceneKey(item.scene))),
+                  h('span', { className: 'dsh-memory-tag' }, t(whoKey(item.who)))))))
+          }
+
           let body
           if (status === 'loading') {
             body = h('div', { className: 'dsh-memory-message' }, t('loading'))
@@ -273,24 +381,33 @@ window.__ModuleLoader__.load({
               h('span', null, t('errorHint')),
               h('div', null,
                 h('button', { type: 'button', className: 'dsh-memory-button', onClick: load }, t('retry'))))
-          } else if (memories.length === 0) {
-            body = h('div', { className: 'dsh-memory-message' },
-              h('p', { className: 'dsh-memory-message-title' }, t('empty')),
-              h('span', null, t('emptyHint')))
           } else {
-            body = memories.map(item => h('div', { key: item.id, className: 'dsh-memory-item' },
-              h('p', { className: 'dsh-memory-item-text' }, item.text),
-              h('span', { className: 'dsh-memory-tag' }, t(kindKey(item.kind)))))
+            body = showingSamples ? renderSamples() : renderMemories()
           }
 
-          const countLabel = status !== 'ready'
-            ? null
-            : memories.length === 1 ? t('countOne') : t('count', { n: memories.length })
+          const tabButton = (key, label, count) => h('button', {
+            type: 'button',
+            className: 'dsh-memory-tab',
+            'data-active': tab === key ? '1' : '0',
+            onClick: () => setTab(key),
+          }, count > 0 ? label + ' ' + count : label)
+
+          let countLabel = null
+          if (status === 'ready') {
+            if (showingSamples) {
+              countLabel = samples.length === 1 ? t('samplesCountOne') : t('samplesCount', { n: samples.length })
+            } else {
+              countLabel = memories.length === 1 ? t('countOne') : t('count', { n: memories.length })
+            }
+          }
 
           return h('div', { className: 'dsh-memory-root' },
             h('div', { className: 'dsh-memory-head' },
               h('h1', { className: 'dsh-memory-title' }, t('title')),
-              h('p', { className: 'dsh-memory-subtitle' }, t('subtitle')),
+              h('p', { className: 'dsh-memory-subtitle' }, showingSamples ? t('samplesSubtitle') : t('subtitle')),
+              h('div', { className: 'dsh-memory-tabs' },
+                tabButton('memories', t('tabMemories'), memories.length),
+                tabButton('samples', t('tabSamples'), samples.length)),
               countLabel === null ? null : h('p', { className: 'dsh-memory-count' }, countLabel)),
             h('div', { className: 'dsh-memory-body' }, body))
         }
