@@ -80,11 +80,20 @@ const SEEDS = [
 ]
 
 function resolveDir() {
+  const shared = join(homedir(), '.dsh', 'memory')
   const profileDir = process.env.DSH_PROFILE_DIR
-  const base = typeof profileDir === 'string' && profileDir.trim() !== ''
-    ? profileDir.trim()
-    : join(homedir(), '.dsh')
-  return join(base, 'memory')
+  const scoped = typeof profileDir === 'string' && profileDir.trim() !== ''
+    ? join(profileDir.trim(), 'memory')
+    : shared
+  if (scoped === shared) return shared
+  // Memory has always lived in the shared directory. If it is already there,
+  // keep using it so a profile-scoped launch does not start from an empty file.
+  try {
+    readFileSync(join(shared, 'about-user.json'), 'utf8')
+    return shared
+  } catch {
+    return scoped
+  }
 }
 
 function isRecord(value) {
